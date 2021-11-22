@@ -1,0 +1,104 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+//this is the data needed about the mesh we are going to use
+struct SourceVertex
+{
+    float3 pos;
+};
+
+uint _NumSourceTriangles;
+
+StructuredBuffer<SourceVertex> SourceVerts;
+StructuredBuffer<int> SourceTriangles;
+
+//data needed to generate the stack of meshes
+float3 chunkCenter;
+float startHeight;
+float distanceBetweenPlanes;
+uint numPlanesToGenerate;
+
+//this is data we are going to create
+
+struct DrawVertex
+{
+    float3 worldPos;
+    float normHeight;
+};
+
+struct DrawTriangle
+{
+    DrawVertex verts[3];
+};
+
+//and this is the structure we are going to fill
+AppendStructuredBuffer<DrawTriangle> DrawTriangles;
+
+//the indirect draw call args, as described in the renderer script
+struct IndirectArgs
+{
+    uint numVerticesPerInstance;
+    uint numInstances;
+    uint startVerticesIndex;
+    uint startInstanceIndex;
+};
+
+//The kernel will count the number of vertices, so this must be RW enables
+RWStructuredBuffer<IndirectArgs> _IndirectArgsBuffer;
+
+DrawVertex GenerateVertex(uint index, float thisHeight, float normHeight)
+{
+    DrawVertex vert = (DrawVertex) 0;
+    vert.worldPos = SourceVerts[SourceTriangles[index]].pos + float3(0, thisHeight, 0) + chunkCenter;
+    vert.normHeight = normHeight;
+    
+    return vert;
+}
+
+DrawTriangle GenerateTriangle(uint startIndex, uint layer)
+{
+    DrawTriangle tri = (DrawTriangle) 0;
+
+    
+    //calculate the normalized height, we add one to these calculations so that the highest and lowest plane don't end up equalling zero in the graphics shader
+    float maxHeight = distanceBetweenPlanes * (numPlanesToGenerate + 1);
+    float thisHeight = distanceBetweenPlanes * (layer + 1);
+    float normHeight = thisHeight / maxHeight;
+    
+    //then add the start height offset to get the actual world space height
+    thisHeight += startHeight;
+
+    tri.verts[0] = GenerateVertex(startIndex, thisHeight, normHeight);
+    tri.verts[1] = GenerateVertex(startIndex + 1, thisHeight, normHeight);
+    tri.verts[2] = GenerateVertex(startIndex + 2, thisHeight, normHeight);
+    
+    return tri;
+}
+
+
+[numthreads(128,1,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{  
+    // stops new triangles from being generated when we have reach the determined limit
+    if (id.x >= _NumSourceTriangles * numPlanesToGenerate)
+    {
+        return;
+    }
+    
+    //we build the triangles in planes, this has us going through each triangle and then starting back at the start when we have done every tri in the source mesh
+    uint startIndex = id.x % _NumSourceTriangles;
+    startIndex *= 3;
+    
+    //this int division gets us the layer we are on
+    //using uint greatly increases the speed of this
+    uint layer = id.x / _NumSourceTriangles;
+    
+    //generate the triangle and its verts
+    DrawTriangle tri = GenerateTriangle(startIndex, layer);
+        
+    //add it to the buffer
+    DrawTriangles.Append(tri);
+
+    //then add three to the vert count, one for each vert in the triangle
+    InterlockedAdd(_IndirectArgsBuffer[0].numVerticesPerInstance, 3);
+}
