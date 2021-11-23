@@ -5,3 +5,5 @@ Download files and import them into Unity. Create a gameobject in your scene and
 Adjust the mesh settings via the CloudManager Chunk Settings field. Adjust the material settings via the Cloud Material Settings field.
 
 ![Example Screen Shot](https://github.com/FeralPug/EndlessClouds/blob/main/Examples/CloudsScreenShot.jpg?raw=true "Screen Shot")
+
+![](https://github.com/FeralPug/EndlessClouds/blob/main/Examples/Clouds.gif)
